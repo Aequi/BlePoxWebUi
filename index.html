@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLE Data Plot</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: left; 
+            background-color: #121212;
+            color: #ffffff;
+        }
+        .chart-container { 
+            display: flex; 
+            flex-wrap: wrap; 
+            justify-content: left; 
+        }
+        canvas { 
+            max-width: 60vw; 
+            max-height: 100vh; 
+            min-height: 35vh; 
+            margin: 10px; 
+            background-color: #1e1e1e;
+        }
+        button { 
+            padding: 5px 10px; 
+            margin-bottom: 10px; 
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #444;
+        }
+        #log { 
+            font-size: 12px; 
+            height: 100px; 
+            max-width: 60vw; 
+            overflow-y: auto; 
+            border: 1px solid #555; 
+            padding: 5px; 
+            margin-top: 10px; 
+            background-color: #1e1e1e;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <h2>BLE Data Plot</h2>
+    <button onclick="connectToDevice()">Connect</button>
+    <div class="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
+    <div class="chart-container">
+        <canvas id="chart2"></canvas>
+    </div>
+    <div id="log"></div>
+    
+    <script>
+        let FFTJS;
+        window.onload = function() {
+            FFTJS = window.FFT;
+        };
+        let chart, chart2, dataValuesA = [], dataValuesB = [], labels = [];
+        function logMessage(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.innerHTML += message + '<br>';
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(message);
+        }
+
+        async function connectToDevice() {
+            try {
+                logMessage("Requesting Bluetooth Device...");
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['eeaa0001-eeaa-eeaa-eeaa-eeaaeeaaeeaa']
+                });
+                logMessage("Connecting to GATT server...");
+                const server = await device.gatt.connect();
+                logMessage("Getting primary service...");
+                const service = await server.getPrimaryService('eeaa0001-eeaa-eeaa-eeaa-eeaaeeaaeeaa');
+                logMessage("Getting characteristic...");
+                const characteristic = await service.getCharacteristic('eeaa0003-eeaa-eeaa-eeaa-eeaaeeaaeeaa');
+                logMessage("Starting notifications...");
+                await characteristic.startNotifications();
+                characteristic.addEventListener('characteristicvaluechanged', handleNotification);
+                logMessage("Listening for notifications...");
+            } catch (error) {
+                logMessage("Error: " + error);
+            }
+        }
+
+        function handleNotification(event) {
+            let dataView = new DataView(event.target.value.buffer);
+            
+            for (let i = 0; i < 4; i++) {
+                dataValuesA.push(65535 - dataView.getUint16(i * 4, false));   // Read A0, A1, A2, A3
+                dataValuesB.push(65535 - dataView.getUint16(i * 4 + 2, false)); // Read B0, B1, B2, B3
+                const now = new Date();
+                const timeWithMillis = now.toLocaleTimeString() + "." + now.getMilliseconds().toString().padStart(3, '0');
+                labels.push(timeWithMillis);
+                if (dataValuesA.length > 2048) {
+                    dataValuesA.shift();
+                    dataValuesB.shift();
+                    labels.shift();
+                }
+            }
+            let counter = dataView.getUint8(18); // Read 1-byte sequential counter
+            
+            updateCharts();
+        }
+
+        function createCharts() {
+            const ctx1 = document.getElementById('chart').getContext('2d');
+            chart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Signal R',
+                        data: dataValuesA,
+                        borderColor: 'red',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scaleFontColor: "#FFFFFF",
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { display: true },
+                        y: { display: true }
+                    },
+                    grid: {
+                        color: "white"
+                    }
+                }
+            });
+
+            const ctx2 = document.getElementById('chart2').getContext('2d');
+            chart2 = new Chart(ctx2, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Signal IR',
+                        data: dataValuesB,
+                        borderColor: 'magenta',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scaleFontColor: "#FFFFFF",
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: { display: true },
+                        y: { display: true }
+                    },
+                    grid: {
+                        color: "white"
+                    }
+                }
+            });
+        }
+
+        function updateCharts() {
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = dataValuesA;
+            chart.update();
+            
+            chart2.data.labels = labels;
+            chart2.data.datasets[0].data = dataValuesB;
+            chart2.update();
+        }
+
+        document.addEventListener('DOMContentLoaded', createCharts);
+    </script>
+</body>
+</html>
